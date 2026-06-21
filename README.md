@@ -7,6 +7,15 @@ calendar backtesting with a full analytics suite (Monte Carlo, walk-forward,
 MAE/MFE), prop-firm rule presets, and optional live trading through Interactive
 Brokers, a desktop bridge (NinjaTrader/Quantower), Rithmic, or Tradovate.
 
+## Download & run
+
+1. Go to **[Releases](../../releases/latest)** and download **`TBTEngine.exe`**.
+2. Double-click it. A small window opens and your browser shows the dashboard.
+3. To quit: click **Quit** in the dashboard, or close that window.
+
+Windows SmartScreen may warn that it's from an unknown publisher (the app
+isn't code-signed) — click **More info → Run anyway**.
+
 ## Features
 
 **Strategies & engine**
@@ -36,15 +45,6 @@ Brokers, a desktop bridge (NinjaTrader/Quantower), Rithmic, or Tradovate.
 - Phone push notifications (with quiet hours), a first-run setup wizard, and a per-trade journal.
 - Black-box recorder + diagnostics (searchable and downloadable), and settings/profiles backup & restore.
 - Keyboard shortcuts, light/dark theme, and one-click self-update from GitHub.
-
-## Download & run
-
-1. Go to **[Releases](../../releases/latest)** and download **`TBTEngine.exe`**.
-2. Double-click it. A small window opens and your browser shows the dashboard.
-3. To quit: click **Quit** in the dashboard, or close that window.
-
-Windows SmartScreen may warn that it's from an unknown publisher (the app
-isn't code-signed) — click **More info → Run anyway**.
 
 ## Updating
 
