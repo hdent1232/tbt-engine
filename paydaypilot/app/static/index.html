@@ -157,12 +157,13 @@
 <!-- ================================ SPENDING ================================ -->
 <section id="tab-spending" class="tab">
   <div class="panel">
-    <h2>Import bank statement</h2>
-    <p class="muted small">Export a CSV from your bank's website and drop it here. Works with a signed
-      <code>Amount</code> column or separate <code>Debit</code>/<code>Credit</code> columns. Duplicates are skipped,
-      so re-importing overlapping statements is safe.</p>
+    <h2>Import bank statement (PDF or CSV)</h2>
+    <p class="muted small">Drop in your bank's monthly statement <b>PDF</b> (read entirely on your device) or a
+      CSV export. CSVs work with a signed <code>Amount</code> column or separate
+      <code>Debit</code>/<code>Credit</code> columns. Duplicates are skipped, so re-importing overlapping
+      statements is safe. Scanned-image PDFs (no selectable text) can't be read.</p>
     <div class="row-form">
-      <input type="file" id="bank-file" accept=".csv" multiple>
+      <input type="file" id="bank-file" accept=".csv,.pdf,text/csv,application/pdf" multiple>
       <button class="primary" id="bank-import">Import</button>
       <button class="danger ghost" id="bank-clear">Clear all transactions</button>
     </div>

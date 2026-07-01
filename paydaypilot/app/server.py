@@ -228,7 +228,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True})
             elif route == "/api/transactions/import":
                 rules = importers.merge_rules(db.list_rules(conn))
-                txns, note = importers.parse_bank_csv(body.get("csv", ""), rules)
+                if body.get("statement"):
+                    txns, note = importers.parse_statement_text(body["statement"], rules)
+                else:
+                    txns, note = importers.parse_bank_csv(body.get("csv", ""), rules)
                 added = db.add_transactions(conn, txns)
                 self._json({"parsed": len(txns), "added": added,
                             "duplicates": len(txns) - added, "note": note})

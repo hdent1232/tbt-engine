@@ -40,8 +40,15 @@ Everything runs 100% locally — your financial data never leaves your computer.
   insurance, phone — with due days and automatic per-paycheck set-asides.
 
 **Bank statement analysis**
-- Import CSVs exported from your bank (signed `Amount` column or separate
-  `Debit`/`Credit` columns both work; duplicates are skipped automatically).
+- Import your bank's monthly **PDF statement** directly — the text is
+  extracted on your device (bundled pdf.js, works offline on Android) and
+  parsed with section awareness: deposits, withdrawals, and card purchases
+  come in; brokerage sweep lines (e.g. Fidelity's core-fund "You Sold/You
+  Bought") are excluded so nothing double-counts. Scanned-image PDFs can't
+  be read.
+- Or import CSVs exported from your bank (signed `Amount` column or separate
+  `Debit`/`Credit` columns both work). Duplicates are skipped automatically
+  either way.
 - Auto-categorization with 100+ built-in merchant rules plus your own custom
   keyword rules; categories are editable per transaction.
 - Monthly breakdown of where money goes, recurring-subscription detection,

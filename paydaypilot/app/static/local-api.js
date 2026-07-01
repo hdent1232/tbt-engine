@@ -371,6 +371,8 @@
     ["shell", "Gas & Fuel"], ["chevron", "Gas & Fuel"], ["exxon", "Gas & Fuel"],
     ["bp ", "Gas & Fuel"], ["speedway", "Gas & Fuel"], ["circle k", "Gas & Fuel"],
     ["marathon", "Gas & Fuel"], ["fuel", "Gas & Fuel"],
+    ["uber eats", "Dining"], ["uber * eats", "Dining"], ["uber *eats", "Dining"],
+    ["ubereats", "Dining"],  // before the generic "uber" transport rule
     ["uber", "Transport"], ["lyft", "Transport"], ["parking", "Transport"],
     ["toll", "Transport"], ["transit", "Transport"],
     ["netflix", "Subscriptions"], ["spotify", "Subscriptions"], ["hulu", "Subscriptions"],
@@ -392,7 +394,15 @@
     ["allstate", "Insurance"], ["insurance", "Insurance"],
     ["steam", "Entertainment"], ["playstation", "Entertainment"], ["xbox", "Entertainment"],
     ["cinema", "Entertainment"], ["theatre", "Entertainment"], ["ticketmaster", "Entertainment"],
+    ["365 market", "Dining"], ["aramark", "Dining"], ["waffle house", "Dining"],
+    ["favor ", "Dining"], ["texaco", "Gas & Fuel"], ["valero", "Gas & Fuel"],
+    ["7-eleven", "Gas & Fuel"], ["openai", "Subscriptions"], ["chatgpt", "Subscriptions"],
+    ["rocketmoney", "Subscriptions"], ["rkt money", "Subscriptions"],
+    ["xsolla", "Entertainment"], ["whop", "Entertainment"],
+    ["hims", "Health & Fitness"], ["crunch fit", "Health & Fitness"],
+    ["westlake", "Debt Payment"], ["uas epayment", "Debt Payment"],
     ["payroll", "Income"], ["direct dep", "Income"], ["paycheck", "Income"], ["salary", "Income"],
+    ["dividend", "Income"],
     ["car payment", "Debt Payment"], ["loan pmt", "Debt Payment"], ["loan payment", "Debt Payment"],
     ["credit card pmt", "Debt Payment"], ["card payment", "Debt Payment"], ["autopay", "Debt Payment"],
     ["transfer", "Transfers"], ["zelle", "Transfers"], ["venmo", "Transfers"],
@@ -523,6 +533,105 @@
       txns.push({ date: d, description: desc, amount: r2(amount), category });
     }
     return [txns, skipped ? `Skipped ${skipped} unparseable row(s).` : ""];
+  }
+
+  // ---------------------------------------------- PDF statement text parsing
+  // Mirrors app/importers.py parse_statement_text — see there for the details.
+
+  const MONEY_TOKEN = "-?\\(?\\$?-?[\\d,]{1,12}\\.\\d{2}\\)?";
+  const STMT_LINE = new RegExp(
+    "^\\s*(\\d{1,2}/\\d{1,2}(?:/\\d{2,4})?)" +
+    "(?:\\s+(\\d{1,2}/\\d{1,2}(?:/\\d{2,4})?))?" +
+    "\\s+(.+?)" +
+    `\\s+(${MONEY_TOKEN}(?:\\s+${MONEY_TOKEN})*)\\s*$`);
+  const STMT_SKIP_ON = /core fund activity|estimated cash flow|^holdings\b/i;
+  const STMT_SKIP_OFF = /deposits|withdrawals|debit card|purchases|other card activity|dividends|checks paid|atm|transactions/i;
+  const STMT_NEG_SECTION = /withdrawal|purchase|checks? paid|fees|debits|atm/i;
+  const STMT_POS_SECTION = /deposit|credit|addition|dividend|interest|other card activity/i;
+  const STMT_BAD_DESC = /you sold|you bought|morning trade|reinvest/i;
+  const STMT_BAD_START = ["total", "subtotal", "beginning", "ending", "balance", "date", "trans."];
+  const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december"];
+
+  function statementPeriodEnd(text) {
+    const monthAlt = MONTH_NAMES.map((m) => m[0].toUpperCase() + m.slice(1)).join("|");
+    let m = text.match(new RegExp(
+      `(?:${monthAlt})\\s+\\d{1,2},\\s*\\d{4}\\s*[-–—]\\s*` +
+      `(${monthAlt})\\s+(\\d{1,2}),\\s*(\\d{4})`, "i"));
+    if (m) {
+      const month = MONTH_NAMES.indexOf(m[1].toLowerCase()) + 1;
+      return `${m[3]}-${String(month).padStart(2, "0")}-${String(Math.min(28, Number(m[2]))).padStart(2, "0")}`;
+    }
+    m = text.match(/\d{1,2}\/\d{1,2}\/(\d{2,4})\s*(?:-|–|—|to|through)\s*(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (m) {
+      let year = Number(m[4]);
+      if (year < 100) year += 2000;
+      const mo = Number(m[2]), d = Number(m[3]);
+      if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+        return `${year}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      }
+    }
+    return null;
+  }
+
+  function statementDate(token, periodEnd) {
+    const parts = token.split("/").map(Number);
+    const [month, day] = parts;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    if (parts.length === 3) {
+      let year = parts[2];
+      if (year < 100) year += 2000;
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+    const ref = periodEnd || todayISO();
+    const refYear = Number(ref.slice(0, 4));
+    for (const year of [refYear, refYear - 1]) {
+      const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      if (toUTC(iso) <= toUTC(ref) + 35 * 86400000) return iso;
+    }
+    return null;
+  }
+
+  function parseStatementText(text, rules) {
+    const periodEnd = statementPeriodEnd(text);
+    const txns = [];
+    let skipping = false;
+    let sectionSign = 0;
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      const m = line.match(STMT_LINE);
+      if (!m) {
+        if (line.length < 80) {
+          if (STMT_SKIP_ON.test(line)) skipping = true;
+          else if (STMT_SKIP_OFF.test(line)) {
+            skipping = false;
+            if (STMT_NEG_SECTION.test(line)) sectionSign = -1;
+            else if (STMT_POS_SECTION.test(line)) sectionSign = 1;
+          }
+        }
+        continue;
+      }
+      if (skipping) continue;
+      const [, date1, date2, descRaw, moneyGroup] = m;
+      const desc = descRaw.replace(/\s+/g, " ").trim();
+      const low = desc.toLowerCase();
+      if (!desc || STMT_BAD_START.some((s) => low.startsWith(s)) || STMT_BAD_DESC.test(low)) continue;
+      const tokens = moneyGroup.split(/\s+/);
+      const rawAmount = tokens.length >= 2 ? tokens[tokens.length - 2] : tokens[tokens.length - 1];
+      let amount = parseMoney(rawAmount);
+      if (amount === null) continue;
+      if (amount > 0 && !rawAmount.includes("-") && !rawAmount.includes("(") && sectionSign < 0) {
+        amount = -amount;
+      }
+      const when = statementDate(date2 || date1, periodEnd);
+      if (!when) continue;
+      txns.push({ date: when, description: desc.slice(0, 120), amount: r2(amount),
+        category: categorize(desc, rules) });
+    }
+    const note = txns.length ? "" :
+      "No transactions found. If this statement is a scanned image (not selectable text), it can't be read.";
+    return [txns, note];
   }
 
   const DEBT_NAME_COLS = ["name", "account", "account name", "creditor", "lender"];
@@ -935,7 +1044,10 @@
         return { ok: true };
 
       case "/api/transactions/import": {
-        const [txns, note] = parseBankCsv(body.csv || "", mergeRules(db.rules));
+        const rules = mergeRules(db.rules);
+        const [txns, note] = body.statement
+          ? parseStatementText(body.statement, rules)
+          : parseBankCsv(body.csv || "", rules);
         const added = addTransactions(db, txns);
         save(db);
         return { parsed: txns.length, added, duplicates: txns.length - added, note };
@@ -977,6 +1089,6 @@
     },
     // exposed for tests
     _internals: { buildPlan, simulatePayoff, spendingSummary, parseBankCsv, parseDebtsCsv,
-      parseDebtsText, nextDueDate, estimateMonthlyExtra },
+      parseDebtsText, parseStatementText, nextDueDate, estimateMonthlyExtra },
   };
 })();

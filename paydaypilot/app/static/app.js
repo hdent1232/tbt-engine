@@ -459,16 +459,73 @@ $("#b-cancel").addEventListener("click", () => {
 
 // ------------------------------------------------------------- spending
 
+// ---- PDF text extraction (pdf.js, bundled — works offline in the Android app)
+
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve();
+  const inject = (src) => new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = res;
+    s.onerror = () => rej(new Error("couldn't load " + src));
+    document.head.appendChild(s);
+  });
+  // Worker script first: it registers window.pdfjsWorker, which pdf.js uses to
+  // run on the main thread (real Workers aren't available under file://).
+  return inject("pdf.worker.min.js").then(() => inject("pdf.min.js")).then(() => {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.min.js";
+  });
+}
+
+async function extractPdfText(file) {
+  await loadPdfJs();
+  const data = new Uint8Array(await file.arrayBuffer());
+  const doc = await window.pdfjsLib.getDocument({ data }).promise;
+  const pages = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const content = await (await doc.getPage(p)).getTextContent();
+    // Rebuild layout lines: group text items by y position, sort by x.
+    const rows = [];
+    for (const item of content.items) {
+      if (!item.str || !item.str.trim()) continue;
+      // Skip rotated text (vertical sidebar markers on statements) — it shares
+      // a y position with real rows and corrupts them.
+      if (Math.abs(item.transform[1]) > 0.01 || Math.abs(item.transform[2]) > 0.01) continue;
+      const y = item.transform[5];
+      let row = rows.find((r) => Math.abs(r.y - y) <= 2.5);
+      if (!row) { row = { y, items: [] }; rows.push(row); }
+      row.items.push({ x: item.transform[4], s: item.str });
+    }
+    rows.sort((a, b) => b.y - a.y);
+    pages.push(rows.map((r) =>
+      r.items.sort((a, b) => a.x - b.x).map((i) => i.s).join(" ")).join("\n"));
+  }
+  doc.destroy();
+  return pages.join("\n");
+}
+
 $("#bank-import").addEventListener("click", async () => {
   const files = $("#bank-file").files;
-  if (!files.length) { toast("Choose one or more CSV files first."); return; }
+  if (!files.length) { toast("Choose one or more CSV or PDF files first."); return; }
   let added = 0, dupes = 0, notes = [];
   for (const f of files) {
-    const text = await f.text();
-    const r = await api("/api/transactions/import", { csv: text });
-    added += r.added; dupes += r.duplicates;
-    if (r.note) notes.push(`${f.name}: ${r.note}`);
-    if (!r.parsed) notes.push(`${f.name}: no transactions found — check that it has Date and Amount columns.`);
+    try {
+      let r;
+      if (/\.pdf$/i.test(f.name) || f.type === "application/pdf") {
+        toast(`Reading ${f.name}…`);
+        const text = await extractPdfText(f);
+        r = await api("/api/transactions/import", { statement: text });
+      } else {
+        r = await api("/api/transactions/import", { csv: await f.text() });
+      }
+      added += r.added; dupes += r.duplicates;
+      if (r.note) notes.push(`${f.name}: ${r.note}`);
+      if (!r.parsed && !r.note) {
+        notes.push(`${f.name}: no transactions found — check that it has Date and Amount columns.`);
+      }
+    } catch (err) {
+      notes.push(`${f.name}: ${err.message}`);
+    }
   }
   $("#bank-import-result").innerHTML =
     `Imported <b>${added}</b> transaction(s)` + (dupes ? `, skipped ${dupes} duplicate(s)` : "") + "." +

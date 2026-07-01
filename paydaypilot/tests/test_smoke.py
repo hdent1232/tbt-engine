@@ -169,6 +169,86 @@ class SmokeTest(unittest.TestCase):
             self.assertIn(key, export)
 
 
+STATEMENT_TEXT = """
+INVESTMENT REPORT
+February 1, 2026 - February 28, 2026
+Account Summary
+Deposits
+Date Reference Description Amount
+02/06 Deposit Acme Co Payroll $651.17
+02/20 Deposit Acme Co Payroll 940.29
+Total Deposits $1,591.46
+Withdrawals
+Date Reference Description Amount
+02/02 DEBIT LOAN EPAYMENT -$700.00
+02/17 DEBIT GYM CLUB FEES -38.96
+Total Withdrawals -$738.96
+Core Fund Activity
+Settlement Account
+Date Type Transaction Description Quantity Price Amount Balance
+02/02 CASH You Sold GOVERNMENT MONEY MARKET -700.000 1.0000 -700.00 292.41
+02/06 CASH You Bought GOVERNMENT MONEY MARKET 651.170 1.0000 651.17 696.23
+Debit Card Summary Debit Card Activity
+TRANSACTIONS
+Trans. Date Post Date Location Reference/Description Amount
+Purchases
+01/30 02/02 COFFEE SHOP #12 TROY MI 2401339DE05K6B4JY -7.12
+02/07 02/10 WESTLAKE PAYMENT 888-7399192 CA 2442119DPS66FSTMF -441.22
+02/14 02/17 WAFFLE HOUSE 2446 ROUND ROCK TX 2479338DX02GVXXZE -23.40
+Total Purchases -$471.74
+Other Card Activity
+02/21 02/23 Refund Store Inc. 800-3680038 CA 7479338E401X6P3M4 $80.00
+Total Other Card Activity $80.00
+"""
+
+# A generic checking-account layout: unsigned amounts + running balance column.
+CHECKING_TEXT = """
+Statement Period 01/01/2026 to 01/31/2026
+Withdrawals and Debits
+Date Description Amount Balance
+01/05 CHECK CARD PURCHASE GROCERY MART 45.00 1,234.56
+01/09 ONLINE PAYMENT ELECTRIC CO 90.12 1,144.44
+Deposits and Credits
+Date Description Amount Balance
+01/15 DIRECT DEP EMPLOYER PAYROLL 1,500.00 2,644.44
+"""
+
+
+class StatementParseTest(unittest.TestCase):
+    def parse(self, text):
+        from app.importers import parse_statement_text, merge_rules
+        return parse_statement_text(text, merge_rules([]))[0]
+
+    def test_fidelity_style(self):
+        txns = self.parse(STATEMENT_TEXT)
+        amounts = {round(t["amount"], 2) for t in txns}
+        # deposits, withdrawals, purchases, refund — all in
+        self.assertEqual(len(txns), 8)
+        for expected in (651.17, 940.29, -700.0, -38.96, -7.12, -441.22, -23.4, 80.0):
+            self.assertIn(expected, amounts)
+        # sweep lines excluded (the -700.00/651.17 sweeps duplicate real rows,
+        # so check via descriptions too)
+        self.assertFalse(any("You Sold" in t["description"] or "You Bought" in t["description"]
+                             for t in txns))
+        # post date wins over transaction date; period supplies the year
+        coffee = next(t for t in txns if "COFFEE" in t["description"])
+        self.assertEqual(coffee["date"], "2026-02-02")
+        car = next(t for t in txns if "WESTLAKE" in t["description"])
+        self.assertEqual(car["category"], "Debt Payment")
+        payroll = next(t for t in txns if "Payroll" in t["description"])
+        self.assertEqual(payroll["category"], "Income")
+
+    def test_checking_style_signs_and_balance_column(self):
+        txns = self.parse(CHECKING_TEXT)
+        self.assertEqual(len(txns), 3)
+        by_desc = {t["description"][:12]: t for t in txns}
+        # unsigned amounts in a debits section become negative; balance ignored
+        self.assertEqual(by_desc["CHECK CARD P"]["amount"], -45.0)
+        self.assertEqual(by_desc["ONLINE PAYME"]["amount"], -90.12)
+        self.assertEqual(by_desc["DIRECT DEP E"]["amount"], 1500.0)
+        self.assertTrue(all(t["date"].startswith("2026-01") for t in txns))
+
+
 class EngineTest(unittest.TestCase):
     def test_payoff_math(self):
         from app.engine import simulate_payoff

@@ -5,7 +5,7 @@ keyword-based transaction categorization and spending analysis.
 import csv
 import io
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 # ------------------------------------------------------------ categorization
 
@@ -23,6 +23,8 @@ DEFAULT_RULES = [
     ("shell", "Gas & Fuel"), ("chevron", "Gas & Fuel"), ("exxon", "Gas & Fuel"),
     ("bp ", "Gas & Fuel"), ("speedway", "Gas & Fuel"), ("circle k", "Gas & Fuel"),
     ("marathon", "Gas & Fuel"), ("fuel", "Gas & Fuel"),
+    ("uber eats", "Dining"), ("uber * eats", "Dining"), ("uber *eats", "Dining"),
+    ("ubereats", "Dining"),  # before the generic "uber" transport rule
     ("uber", "Transport"), ("lyft", "Transport"), ("parking", "Transport"),
     ("toll", "Transport"), ("transit", "Transport"),
     ("netflix", "Subscriptions"), ("spotify", "Subscriptions"), ("hulu", "Subscriptions"),
@@ -44,7 +46,15 @@ DEFAULT_RULES = [
     ("allstate", "Insurance"), ("insurance", "Insurance"),
     ("steam", "Entertainment"), ("playstation", "Entertainment"), ("xbox", "Entertainment"),
     ("cinema", "Entertainment"), ("theatre", "Entertainment"), ("ticketmaster", "Entertainment"),
+    ("365 market", "Dining"), ("aramark", "Dining"), ("waffle house", "Dining"),
+    ("favor ", "Dining"), ("texaco", "Gas & Fuel"), ("valero", "Gas & Fuel"),
+    ("7-eleven", "Gas & Fuel"), ("openai", "Subscriptions"), ("chatgpt", "Subscriptions"),
+    ("rocketmoney", "Subscriptions"), ("rkt money", "Subscriptions"),
+    ("xsolla", "Entertainment"), ("whop", "Entertainment"),
+    ("hims", "Health & Fitness"), ("crunch fit", "Health & Fitness"),
+    ("westlake", "Debt Payment"), ("uas epayment", "Debt Payment"),
     ("payroll", "Income"), ("direct dep", "Income"), ("paycheck", "Income"), ("salary", "Income"),
+    ("dividend", "Income"),
     ("car payment", "Debt Payment"), ("loan pmt", "Debt Payment"), ("loan payment", "Debt Payment"),
     ("credit card pmt", "Debt Payment"), ("card payment", "Debt Payment"), ("autopay", "Debt Payment"),
     ("transfer", "Transfers"), ("zelle", "Transfers"), ("venmo", "Transfers"),
@@ -172,6 +182,131 @@ def parse_bank_csv(text, rules):
         txns.append({"date": d, "description": desc, "amount": round(amount, 2),
                      "category": category})
     note = f"Skipped {skipped} unparseable row(s)." if skipped else ""
+    return txns, note
+
+
+# ------------------------------------------------------------ PDF statement import
+
+# Transaction line: one or two leading M/D dates (trans + post), a description,
+# and one or more trailing money tokens. When two money tokens end the line the
+# last is a running balance and the one before it is the amount.
+_MONEY_TOKEN = r"-?\(?\$?-?[\d,]{1,12}\.\d{2}\)?"
+_STMT_LINE = re.compile(
+    r"^\s*(\d{1,2}/\d{1,2}(?:/\d{2,4})?)"
+    r"(?:\s+(\d{1,2}/\d{1,2}(?:/\d{2,4})?))?"
+    r"\s+(.+?)"
+    rf"\s+({_MONEY_TOKEN}(?:\s+{_MONEY_TOKEN})*)\s*$"
+)
+# Sections whose dated rows are not real cash flow (brokerage sweeps etc.).
+_STMT_SKIP_ON = re.compile(r"core fund activity|estimated cash flow|^holdings\b", re.I)
+_STMT_SKIP_OFF = re.compile(
+    r"deposits|withdrawals|debit card|purchases|other card activity|dividends|"
+    r"checks paid|atm|transactions", re.I)
+_STMT_NEG_SECTION = re.compile(r"withdrawal|purchase|checks? paid|fees|debits|atm", re.I)
+_STMT_POS_SECTION = re.compile(r"deposit|credit|addition|dividend|interest|other card activity", re.I)
+_STMT_BAD_DESC = re.compile(r"you sold|you bought|morning trade|reinvest", re.I)
+_STMT_BAD_START = ("total", "subtotal", "beginning", "ending", "balance", "date", "trans.")
+
+_MONTHS = {m: i + 1 for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july",
+     "august", "september", "october", "november", "december"])}
+
+
+def _statement_period_end(text):
+    """Find the statement period so M/D dates can be given the right year."""
+    m = re.search(
+        r"(?:January|February|March|April|May|June|July|August|September|October|"
+        r"November|December)\s+\d{1,2},\s*\d{4}\s*[-–—]\s*"
+        r"(January|February|March|April|May|June|July|August|September|October|"
+        r"November|December)\s+(\d{1,2}),\s*(\d{4})", text, re.I)
+    if m:
+        return date(int(m.group(3)), _MONTHS[m.group(1).lower()], min(28, int(m.group(2))))
+    m = re.search(
+        r"\d{1,2}/\d{1,2}/(\d{2,4})\s*(?:-|–|—|to|through)\s*"
+        r"(\d{1,2})/(\d{1,2})/(\d{2,4})", text)
+    if m:
+        year = int(m.group(4))
+        if year < 100:
+            year += 2000
+        try:
+            return date(year, int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
+    return None
+
+
+def _statement_date(token, period_end):
+    parts = token.split("/")
+    month, day = int(parts[0]), int(parts[1])
+    if len(parts) == 3:
+        year = int(parts[2])
+        if year < 100:
+            year += 2000
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
+    ref = period_end or date.today()
+    for year in (ref.year, ref.year - 1):
+        try:
+            d = date(year, month, day)
+        except ValueError:
+            continue
+        if d <= ref + timedelta(days=35):
+            return d
+    return None
+
+
+def parse_statement_text(text, rules):
+    """Parse transactions out of bank/brokerage statement text (from a PDF).
+
+    Works line by line with light section tracking: brokerage sweep sections
+    are skipped, and unsigned amounts inherit the sign of their section
+    (Withdrawals/Purchases are money out; Deposits are money in).
+    """
+    period_end = _statement_period_end(text)
+    txns = []
+    skipping = False
+    section_sign = 0
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = _STMT_LINE.match(line)
+        if not m:
+            # Non-transaction line: maybe a section header.
+            if len(line) < 80:
+                if _STMT_SKIP_ON.search(line):
+                    skipping = True
+                elif _STMT_SKIP_OFF.search(line):
+                    skipping = False
+                    if _STMT_NEG_SECTION.search(line):
+                        section_sign = -1
+                    elif _STMT_POS_SECTION.search(line):
+                        section_sign = 1
+            continue
+        if skipping:
+            continue
+        date1, date2, desc, money_group = m.groups()
+        desc = re.sub(r"\s+", " ", desc).strip()
+        low = desc.lower()
+        if not desc or low.startswith(_STMT_BAD_START) or _STMT_BAD_DESC.search(low):
+            continue
+        tokens = money_group.split()
+        raw_amount = tokens[-2] if len(tokens) >= 2 else tokens[-1]
+        amount = _parse_money(raw_amount)
+        if amount is None:
+            continue
+        if amount > 0 and "-" not in raw_amount and "(" not in raw_amount and section_sign < 0:
+            amount = -amount
+        when = _statement_date(date2 or date1, period_end)
+        if not when:
+            continue
+        category = categorize(desc, rules)
+        txns.append({"date": when.isoformat(), "description": desc[:120],
+                     "amount": round(amount, 2), "category": category})
+    note = "" if txns else ("No transactions found. If this statement is a scanned "
+                            "image (not selectable text), it can't be read.")
     return txns, note
 
 
