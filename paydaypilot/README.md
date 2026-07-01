@@ -66,6 +66,18 @@ dashboard's Quit button or Ctrl+C.
 console window opens and the dashboard appears in your browser. SmartScreen
 may warn because the exe isn't code-signed; click **More info → Run anyway**.
 
+**Android app**: download `PayDayPilot.apk` from the
+[android-latest release](../../releases/tag/android-latest) on your phone and
+open it (allow "install unknown apps" when prompted — it's a sideload build,
+not from the Play Store). The entire app runs on-device: the finance engine
+is a JavaScript port (`app/static/local-api.js`) verified against the Python
+engine, data lives in the app's local storage, and the APK requests **zero
+permissions** — nothing ever leaves your phone. The APK is rebuilt by the
+`build-apk` workflow on every change to the app or the `android/` project.
+
+> Note: the desktop and Android apps keep separate data (each stores it
+> locally on its own device). Use Settings → Export backup to move data.
+
 ## Data & privacy
 
 All data lives in a single SQLite file at `~/.paydaypilot/data.db`

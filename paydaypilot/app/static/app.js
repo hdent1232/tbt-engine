@@ -9,6 +9,7 @@ let STATE = null; // /api/state payload
 // ------------------------------------------------------------- utilities
 
 async function api(path, body) {
+  if (window.LOCAL_API) return window.LOCAL_API.call(path, body); // serverless mode (Android/file)
   const opts = body === undefined ? {} : {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -620,6 +621,12 @@ $("#export-json").addEventListener("click", async () => {
 });
 
 function download(name, content, type) {
+  if (window.AndroidBridge && window.AndroidBridge.saveFile) {
+    // Android WebView can't download blob: URLs — hand the file to the app.
+    window.AndroidBridge.saveFile(name, type, btoa(unescape(encodeURIComponent(content))));
+    toast(`Saved ${name} to your Downloads.`);
+    return;
+  }
   const blob = new Blob([content], { type });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -630,4 +637,5 @@ function download(name, content, type) {
 
 // ------------------------------------------------------------- boot
 
+if (window.LOCAL_API) $("#quit").style.display = "none"; // nothing to quit in app mode
 loadState().catch((e) => toast("Failed to load: " + e.message));

@@ -247,6 +247,10 @@ def parse_debts_text(text):
     for i, line in enumerate(lines):
         low = line.lower()
         creditor = next((c for c in KNOWN_CREDITORS if c in low), None)
+        # Detail lines ("Balance: $X", "APR: Y%") describe the account named
+        # above them — they are context, not accounts of their own.
+        if not creditor and re.match(r"^(balance|amount|owed|apr|interest|min(imum)?|monthly|payment)\b", low):
+            continue
         balance_m = re.search(r"(?:balance|owed|amount)\D{0,12}" + MONEY_RE, low)
         if not creditor and not balance_m:
             continue

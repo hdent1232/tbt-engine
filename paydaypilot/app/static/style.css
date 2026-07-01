@@ -149,6 +149,21 @@ svg.chart { width: 100%; height: 160px; background: var(--panel2); border-radius
 }
 #toast.show { opacity: 1; }
 
+/* phone-sized screens (Android app) */
+@media (max-width: 600px) {
+  main { padding: 10px; }
+  .panel { padding: 12px; }
+  nav { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  nav button { padding: 8px 10px; font-size: 14px; flex: 0 0 auto; }
+  .brand { font-size: 16px; }
+  header { gap: 8px; padding: 8px 10px; }
+  .table-wrap, .panel { overflow-x: auto; }
+  .bar-row { grid-template-columns: 96px 1fr 78px; font-size: 12px; }
+  .row-form input, .row-form select { min-width: 90px; }
+  .plan-item { flex-wrap: wrap; }
+  .card .value { font-size: 19px; }
+}
+
 .summary-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .chip {
   background: var(--panel2); border: 1px solid var(--border); border-radius: 20px;
