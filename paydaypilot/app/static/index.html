@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PayDay Pilot</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💸</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand">💸 PayDay Pilot</div>
+  <nav id="tabs">
+    <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="paycheck">Paycheck</button>
+    <button data-tab="debts">Debts</button>
+    <button data-tab="bills">Bills</button>
+    <button data-tab="spending">Spending</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+  <button id="quit" class="danger ghost" title="Stop the app">Quit</button>
+</header>
+
+<main>
+
+<!-- ================================ DASHBOARD ================================ -->
+<section id="tab-dashboard" class="tab active">
+  <div class="cards" id="dash-cards"></div>
+  <div class="grid2">
+    <div class="panel">
+      <h2>Latest paycheck plan</h2>
+      <div id="dash-plan" class="muted">No paychecks yet — go to the Paycheck tab and enter one.</div>
+    </div>
+    <div class="panel">
+      <h2>Debt payoff outlook</h2>
+      <div id="dash-outlook" class="muted">Add your debts to see a payoff projection.</div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Getting started</h2>
+    <ol class="steps">
+      <li><b>Debts</b> — add every debt (or import from your credit report): balance, APR, minimum payment, due day.</li>
+      <li><b>Bills</b> — add all monthly expenses: rent, wifi, electric, water, gas, car payment, insurance…</li>
+      <li><b>Settings</b> — set how often you're paid and your essentials budget.</li>
+      <li><b>Paycheck</b> — every time you get paid, enter the amount. The app tells you exactly where each dollar goes.</li>
+      <li><b>Spending</b> — import bank statement CSVs to see where money leaks and what to cut.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ================================ PAYCHECK ================================ -->
+<section id="tab-paycheck" class="tab">
+  <div class="panel">
+    <h2>I got paid — what do I do with it?</h2>
+    <form id="paycheck-form" class="row-form">
+      <label>Amount <input type="number" step="0.01" min="0.01" id="pc-amount" placeholder="e.g. 1850.00" required></label>
+      <label>Date <input type="date" id="pc-date" required></label>
+      <label>Source <input type="text" id="pc-source" placeholder="Paycheck" value="Paycheck"></label>
+      <button type="button" id="pc-preview" class="ghost">Preview plan</button>
+      <button type="submit" class="primary">Create plan</button>
+    </form>
+    <p class="muted small">“Preview” shows the plan without saving. “Create plan” saves it, updates bill set-asides,
+      applies payments to your debt balances and moves the emergency-fund contribution.</p>
+  </div>
+  <div class="panel" id="plan-output" style="display:none"></div>
+  <div class="panel">
+    <h2>Paycheck history</h2>
+    <div id="paycheck-history" class="muted">Nothing yet.</div>
+  </div>
+</section>
+
+<!-- ================================ DEBTS ================================ -->
+<section id="tab-debts" class="tab">
+  <div class="panel">
+    <h2>Debts &amp; payment plans</h2>
+    <p class="muted small">Everything you owe: credit cards, car loan, student loans, personal loans, medical bills…</p>
+    <table class="table" id="debt-table">
+      <thead><tr>
+        <th>Name</th><th>Type</th><th class="num">Balance</th><th class="num">APR %</th>
+        <th class="num">Min payment</th><th class="num">Term (mo)</th><th class="num">Due day</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <form id="debt-form" class="row-form">
+      <input type="hidden" id="d-id">
+      <label>Name <input id="d-name" placeholder="Capital One Visa" required></label>
+      <label>Type <select id="d-kind">
+        <option value="credit_card">Credit card</option><option value="auto_loan">Auto loan</option>
+        <option value="student_loan">Student loan</option><option value="personal">Personal loan</option>
+        <option value="medical">Medical</option><option value="mortgage">Mortgage</option>
+        <option value="other" selected>Other</option>
+      </select></label>
+      <label>Balance $ <input type="number" step="0.01" min="0" id="d-balance" required></label>
+      <label>APR % <input type="number" step="0.01" min="0" id="d-apr" value="0"></label>
+      <label>Min payment $ <input type="number" step="0.01" min="0" id="d-min" value="0"></label>
+      <label>Term months <input type="number" min="0" id="d-term" placeholder="optional"></label>
+      <label>Due day <input type="number" min="1" max="28" id="d-due" value="1"></label>
+      <button type="submit" class="primary" id="d-submit">Add debt</button>
+      <button type="button" class="ghost" id="d-cancel" style="display:none">Cancel edit</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Import from credit report</h2>
+    <p class="muted small">Paste text copied from your credit report (Credit Karma, Experian, etc.) or a CSV with
+      columns <code>name, balance, apr, min payment, term, due day</code>. Found accounts appear below for review —
+      nothing is saved until you confirm. You can also
+      <a href="#" id="debt-csv-template">download a CSV template</a>.</p>
+    <textarea id="debt-import-text" rows="6" placeholder="Paste credit report text or CSV here…"></textarea>
+    <div class="row-form">
+      <input type="file" id="debt-import-file" accept=".csv,.txt">
+      <button class="primary" id="debt-import-parse">Find debts</button>
+    </div>
+    <div id="debt-import-review"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Payoff plan: avalanche vs snowball</h2>
+    <div class="row-form">
+      <label>Extra $/month <input type="number" step="1" min="0" id="proj-extra" placeholder="auto"></label>
+      <button class="ghost" id="proj-refresh">Recalculate</button>
+    </div>
+    <div id="projection"></div>
+  </div>
+</section>
+
+<!-- ================================ BILLS ================================ -->
+<section id="tab-bills" class="tab">
+  <div class="panel">
+    <h2>Monthly bills &amp; expenses</h2>
+    <p class="muted small">Fixed monthly costs: rent, wifi, electric, water, gas, car insurance, phone…
+      (Groceries and gas-station fill-ups belong in the <b>essentials budget</b> in Settings, not here.)</p>
+    <table class="table" id="bill-table">
+      <thead><tr>
+        <th>Name</th><th>Category</th><th class="num">Amount</th><th class="num">Due day</th>
+        <th class="num">Set aside</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <form id="bill-form" class="row-form">
+      <input type="hidden" id="b-id">
+      <label>Name <input id="b-name" placeholder="Rent" required></label>
+      <label>Category <select id="b-category">
+        <option>Housing</option><option>Utilities</option><option>Phone</option><option>Insurance</option>
+        <option>Transport</option><option>Subscriptions</option><option>Health & Fitness</option>
+        <option>Childcare</option><option>Other</option>
+      </select></label>
+      <label>Amount $ <input type="number" step="0.01" min="0" id="b-amount" required></label>
+      <label>Due day <input type="number" min="1" max="28" id="b-due" value="1"></label>
+      <button type="submit" class="primary" id="b-submit">Add bill</button>
+      <button type="button" class="ghost" id="b-cancel" style="display:none">Cancel edit</button>
+    </form>
+    <div id="bill-total" class="muted"></div>
+  </div>
+</section>
+
+<!-- ================================ SPENDING ================================ -->
+<section id="tab-spending" class="tab">
+  <div class="panel">
+    <h2>Import bank statement</h2>
+    <p class="muted small">Export a CSV from your bank's website and drop it here. Works with a signed
+      <code>Amount</code> column or separate <code>Debit</code>/<code>Credit</code> columns. Duplicates are skipped,
+      so re-importing overlapping statements is safe.</p>
+    <div class="row-form">
+      <input type="file" id="bank-file" accept=".csv" multiple>
+      <button class="primary" id="bank-import">Import</button>
+      <button class="danger ghost" id="bank-clear">Clear all transactions</button>
+    </div>
+    <div id="bank-import-result" class="muted"></div>
+  </div>
+  <div class="grid2">
+    <div class="panel">
+      <h2>Where the money goes <span class="muted small" id="spend-range"></span></h2>
+      <div id="spend-categories" class="muted">Import a statement to see your breakdown.</div>
+    </div>
+    <div class="panel">
+      <h2>What to cut</h2>
+      <div id="spend-suggestions" class="muted">Suggestions appear after importing statements.</div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="panel">
+      <h2>Recurring charges (likely subscriptions)</h2>
+      <div id="spend-recurring" class="muted">None detected yet.</div>
+    </div>
+    <div class="panel">
+      <h2>Monthly spend trend</h2>
+      <div id="spend-trend" class="muted"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Transactions</h2>
+    <div id="txn-list" class="muted">None imported yet.</div>
+  </div>
+</section>
+
+<!-- ================================ SETTINGS ================================ -->
+<section id="tab-settings" class="tab">
+  <div class="panel">
+    <h2>Settings</h2>
+    <form id="settings-form" class="settings-grid">
+      <label>How often are you paid?
+        <select id="s-freq">
+          <option value="weekly">Weekly</option>
+          <option value="biweekly">Every 2 weeks</option>
+          <option value="semimonthly">Twice a month (1st &amp; 15th)</option>
+          <option value="monthly">Monthly</option>
+        </select></label>
+      <label>Debt payoff strategy
+        <select id="s-strategy">
+          <option value="avalanche">Avalanche — highest interest first (saves the most money)</option>
+          <option value="snowball">Snowball — smallest balance first (fastest wins)</option>
+        </select></label>
+      <label>Essentials budget $/month <span class="hint">groceries, gas, day-to-day</span>
+        <input type="number" step="1" min="0" id="s-variable"></label>
+      <label>Emergency fund target $
+        <input type="number" step="1" min="0" id="s-etarget"></label>
+      <label>Emergency fund balance $ <span class="hint">what you have saved now</span>
+        <input type="number" step="0.01" min="0" id="s-ebalance"></label>
+      <label>Emergency contribution % of leftover
+        <input type="number" step="1" min="0" max="100" id="s-epct"></label>
+      <label>Fun money % of leftover
+        <input type="number" step="1" min="0" max="100" id="s-fun"></label>
+      <label>Monthly net income $ <span class="hint">0 = estimate from paychecks</span>
+        <input type="number" step="1" min="0" id="s-income"></label>
+      <button type="submit" class="primary">Save settings</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Category rules</h2>
+    <p class="muted small">Custom keyword → category rules used when importing bank statements
+      (checked before the built-in rules).</p>
+    <div id="rules-list"></div>
+    <form id="rule-form" class="row-form">
+      <label>If description contains <input id="r-keyword" placeholder="e.g. chewy" required></label>
+      <label>Category <input id="r-category" placeholder="e.g. Pets" required></label>
+      <button class="primary" type="submit">Add rule</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Data</h2>
+    <p class="muted small">All data is stored locally in <code>~/.paydaypilot/data.db</code>. Nothing leaves your computer.</p>
+    <button class="ghost" id="export-json">Export backup (JSON)</button>
+  </div>
+</section>
+
+</main>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

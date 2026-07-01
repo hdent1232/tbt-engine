@@ -52,6 +52,12 @@ You only download the exe once. After that, open the dashboard, scroll to
 **App Updates**, and click **Check for updates → Install & restart**. The app
 replaces itself with the newest release here and restarts — no re-downloading.
 
+## Also in this repo: PayDay Pilot 💸
+
+A separate desktop personal-finance app that turns every paycheck into an
+exact spending plan — bills, debt payoff (avalanche/snowball), bank-statement
+analysis and cut suggestions. See **[paydaypilot/](paydaypilot/)** for details.
+
 ## Notes
 
 - This repository only hosts the compiled app. Nothing about your accounts,
